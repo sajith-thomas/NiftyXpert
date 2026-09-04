@@ -1,0 +1,16 @@
+
+# Virtual Environments
+venv/
+.venv/
+env/
+
+# Python / Jupyter Caches
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+# Datasets / Heavy Outputs
+data/
+*.csv
+*.zip
+*.tar.gz

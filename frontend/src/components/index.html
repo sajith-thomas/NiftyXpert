@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Live Stock Price Graph</title>
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .chart-container {
+            height: 500px;
+            margin-bottom: 30px;
+        }
+        .controls {
+            margin-bottom: 20px;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        select, button {
+            padding: 8px 12px;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+        }
+        button {
+            background-color: #4285f4;
+            color: white;
+            border: none;
+            cursor: pointer;
+        }
+        .stock-info {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        .info-card {
+            background: #f9f9f9;
+            padding: 15px;
+            border-radius: 4px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        .info-card h3 {
+            margin-top: 0;
+            color: #555;
+            font-size: 14px;
+        }
+        .info-card p {
+            margin-bottom: 0;
+            font-size: 18px;
+            font-weight: bold;
+        }
+        .positive {
+            color: #0f9d58;
+        }
+        .negative {
+            color: #db4437;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Live Stock Price Tracker</h1>
+        
+        <div class="controls">
+            <input type="text" id="stockSymbol" placeholder="Enter stock symbol (e.g., AAPL)" value="AAPL">
+            <button onclick="loadStockData()">Load Stock</button>
+            
+            <select id="timeframe" onchange="updateChart()">
+                <option value="intraday">Intraday (1 minute)</option>
+                <option value="daily">Daily (1 month)</option>
+                <option value="weekly">Weekly (6 months)</option>
+            </select>
+            
+            <select id="chartType" onchange="updateChart()">
+                <option value="line">Line Chart</option>
+                <option value="candlestick">Candlestick</option>
+                <option value="ohlc">OHLC Chart</option>
+            </select>
+        </div>
+        
+        <div id="stockInfo" class="stock-info"></div>
+        
+        <div id="chart" class="chart-container"></div>
+        
+        <div id="volumeChart" class="chart-container"></div>
+    </div>
+
+    <script>
+        let currentStockData = null;
+        
+        function loadStockData() {
+            const symbol = document.getElementById('stockSymbol').value.toUpperCase();
+            if (!symbol) return;
+            
+            fetch(`/api/stock/${symbol}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.error) {
+                        alert(data.error);
+                        return;
+                    }
+                    
+                    currentStockData = data;
+                    updateStockInfo();
+                    updateChart();
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert('Failed to load stock data');
+                });
+        }
+        
+        function updateStockInfo() {
+            if (!currentStockData || !currentStockData.info) return;
+            
+            const info = currentStockData.info;
+            const change = info.regularMarketChange || 0;
+            const changePercent = info.regularMarketChangePercent || 0;
+            
+            document.getElementById('stockInfo').innerHTML = `
+                <div class="info-card">
+                    <h3>Current Price</h3>
+                    <p>$${info.regularMarketPrice?.toFixed(2) || 'N/A'}</p>
+                </div>
+                <div class="info-card">
+                    <h3>Change</h3>
+                    <p class="${change >= 0 ? 'positive' : 'negative'}">
+                        $${change?.toFixed(2) || 'N/A'} (${changePercent?.toFixed(2) || 'N/A'}%)
+                    </p>
+                </div>
+                <div class="info-card">
+                    <h3>Market Cap</h3>
+                    <p>$${formatMarketCap(info.marketCap)}</p>
+                </div>
+                <div class="info-card">
+                    <h3>PE Ratio</h3>
+                    <p>${info.trailingPE?.toFixed(2) || 'N/A'}</p>
+                </div>
+                <div class="info-card">
+                    <h3>52 Week Range</h3>
+                    <p>$${info.fiftyTwoWeekLow?.toFixed(2) || 'N/A'} - $${info.fiftyTwoWeekHigh?.toFixed(2) || 'N/A'}</p>
+                </div>
+                <div class="info-card">
+                    <h3>Volume</h3>
+                    <p>${formatNumber(info.volume || info.averageVolume || 0)}</p>
+                </div>
+            `;
+        }
+        
+        function updateChart() {
+            if (!currentStockData) return;
+            
+            const timeframe = document.getElementById('timeframe').value;
+            const chartType = document.getElementById('chartType').value;
+            const data = currentStockData[timeframe];
+            
+            if (!data || data.length === 0) return;
+            
+            // Prepare data
+            const dates = data.map(item => new Date(item.Date));
+            const opens = data.map(item => item.Open);
+            const highs = data.map(item => item.High);
+            const lows = data.map(item => item.Low);
+            const closes = data.map(item => item.Close);
+            const volumes = data.map(item => item.Volume);
+            
+            // Create main price chart
+            let trace;
+            
+            if (chartType === 'candlestick') {
+                trace = {
+                    x: dates,
+                    close: closes,
+                    high: highs,
+                    low: lows,
+                    open: opens,
+                    type: 'candlestick',
+                    name: 'Price',
+                    increasing: {line: {color: '#0f9d58'}},
+                    decreasing: {line: {color: '#db4437'}}
+                };
+            } else if (chartType === 'ohlc') {
+                trace = {
+                    x: dates,
+                    close: closes,
+                    high: highs,
+                    low: lows,
+                    open: opens,
+                    type: 'ohlc',
+                    name: 'Price',
+                    increasing: {line: {color: '#0f9d58'}},
+                    decreasing: {line: {color: '#db4437'}}
+                };
+            } else {
+                trace = {
+                    x: dates,
+                    y: closes,
+                    type: 'scatter',
+                    mode: 'lines',
+                    name: 'Price',
+                    line: {color: '#4285f4'}
+                };
+            }
+            
+            const layout = {
+                title: `${currentStockData.info.symbol} Stock Price`,
+                xaxis: {
+                    title: 'Date',
+                    rangeslider: {visible: false}
+                },
+                yaxis: {
+                    title: 'Price (USD)',
+                    fixedrange: false
+                },
+                showlegend: false,
+                margin: {l: 50, r: 50, b: 50, t: 50, pad: 4},
+                plot_bgcolor: 'white',
+                paper_bgcolor: 'white'
+            };
+            
+            Plotly.newPlot('chart', [trace], layout);
+            
+            // Create volume chart
+            const volumeTrace = {
+                x: dates,
+                y: volumes,
+                type: 'bar',
+                name: 'Volume',
+                marker: {color: '#9e9e9e'}
+            };
+            
+            const volumeLayout = {
+                title: 'Trading Volume',
+                xaxis: {title: 'Date'},
+                yaxis: {title: 'Volume'},
+                showlegend: false,
+                margin: {l: 50, r: 50, b: 50, t: 50, pad: 4},
+                plot_bgcolor: 'white',
+                paper_bgcolor: 'white'
+            };
+            
+            Plotly.newPlot('volumeChart', [volumeTrace], volumeLayout);
+        }
+        
+        function formatMarketCap(value) {
+            if (!value) return 'N/A';
+            if (value >= 1e12) return `${(value/1e12).toFixed(2)}T`;
+            if (value >= 1e9) return `${(value/1e9).toFixed(2)}B`;
+            if (value >= 1e6) return `${(value/1e6).toFixed(2)}M`;
+            return value.toFixed(2);
+        }
+        
+        function formatNumber(num) {
+            return num.toString().replace(/(\d)(?=(\d{3})+(?!\d))/g, '$1,');
+        }
+        
+        // Load default stock on page load
+        window.onload = loadStockData;
+    </script>
+</body>
+</html>
